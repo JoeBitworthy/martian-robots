@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::command::Command;
 use crate::grid::{Grid, Position};
 use crate::robot::Robot;
@@ -8,6 +10,22 @@ use crate::robot::Robot;
 pub enum Outcome {
     Completed(Robot),
     Lost(Robot),
+}
+
+/// One output line per robot: `x y O`, with ` LOST` appended for a robot
+/// that fell off the grid.
+impl fmt::Display for Outcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (robot, suffix) = match self {
+            Self::Completed(robot) => (robot, ""),
+            Self::Lost(robot) => (robot, " LOST"),
+        };
+        write!(
+            f,
+            "{} {} {}{suffix}",
+            robot.position.x, robot.position.y, robot.facing
+        )
+    }
 }
 
 /// The grid plus the scent each lost robot leaves on the cell it fell from.
@@ -180,6 +198,16 @@ mod tests {
 
         let outcome = world.execute(robot(2, 3, North), &[F]);
         assert_eq!(outcome, Outcome::Lost(robot(2, 3, North)));
+    }
+
+    #[test]
+    fn a_completed_robot_prints_position_and_orientation() {
+        assert_eq!(Outcome::Completed(robot(1, 1, East)).to_string(), "1 1 E");
+    }
+
+    #[test]
+    fn a_lost_robot_prints_lost_after_its_last_cell() {
+        assert_eq!(Outcome::Lost(robot(3, 3, North)).to_string(), "3 3 N LOST");
     }
 
     #[test]
