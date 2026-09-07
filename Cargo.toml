@@ -1,0 +1,7 @@
+[package]
+name = "martian-robots"
+version = "0.1.0"
+edition = "2024"
+description = "Simulates robots moving on a bounded Martian grid"
+
+[dependencies]
