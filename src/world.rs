@@ -1,5 +1,5 @@
 use crate::command::Command;
-use crate::grid::Grid;
+use crate::grid::{Grid, Position};
 use crate::robot::Robot;
 
 /// How a robot's instructions ended. Both carry the robot's final state; a
@@ -10,29 +10,55 @@ pub enum Outcome {
     Lost(Robot),
 }
 
-/// The grid the robots move on.
+/// The grid plus the scent each lost robot leaves on the cell it fell from.
+/// The scents are the only state shared between robots, which is why robots
+/// run one after another.
+///
+/// The grid is at most 51 by 51, so scents are one flag per cell rather than
+/// a hash set: a lookup is an array read.
 #[derive(Debug)]
 pub struct World {
     grid: Grid,
+    scents: Vec<bool>,
 }
 
 impl World {
     pub fn new(grid: Grid) -> Self {
-        Self { grid }
+        Self {
+            grid,
+            scents: vec![false; grid.cell_count()],
+        }
     }
 
-    /// Run one robot's commands in order. A command that would take the robot
-    /// off the grid loses it, and a lost robot carries out no further commands.
+    /// Run one robot's commands in order.
+    ///
+    /// A command that would take the robot off the grid is ignored if an
+    /// earlier robot was lost from the same cell; otherwise the robot is lost,
+    /// leaves its scent there, and carries out no further commands.
     pub fn execute(&mut self, start: Robot, commands: &[Command]) -> Outcome {
         let mut robot = start;
         for &command in commands {
             let next = robot.apply(command);
-            if !self.grid.contains(next.position) {
+            if self.grid.contains(next.position) {
+                robot = next;
+            } else if !self.is_scented(robot.position) {
+                self.add_scent(robot.position);
                 return Outcome::Lost(robot);
             }
-            robot = next;
         }
         Outcome::Completed(robot)
+    }
+
+    pub fn is_scented(&self, position: Position) -> bool {
+        self.grid
+            .cell(position)
+            .is_some_and(|cell| self.scents[cell])
+    }
+
+    fn add_scent(&mut self, position: Position) {
+        if let Some(cell) = self.grid.cell(position) {
+            self.scents[cell] = true;
+        }
     }
 }
 
@@ -95,6 +121,65 @@ mod tests {
     fn a_lost_robot_ignores_its_remaining_instructions() {
         let outcome = world().execute(robot(3, 3, North), &[F, R, F, F]);
         assert_eq!(outcome, Outcome::Lost(robot(3, 3, North)));
+    }
+
+    #[test]
+    fn a_lost_robot_leaves_a_scent_where_it_fell() {
+        let mut world = world();
+        world.execute(robot(3, 3, North), &[F]);
+        assert!(world.is_scented(Position { x: 3, y: 3 }));
+        assert!(
+            !world.is_scented(Position { x: 3, y: 4 }),
+            "not off the grid"
+        );
+        assert!(
+            !world.is_scented(Position { x: 3, y: 2 }),
+            "not the cell before"
+        );
+    }
+
+    #[test]
+    fn a_completed_robot_leaves_no_scent() {
+        let mut world = world();
+        world.execute(robot(1, 1, East), &[F, F]);
+        assert!(!world.is_scented(Position { x: 1, y: 1 }));
+        assert!(!world.is_scented(Position { x: 3, y: 1 }));
+    }
+
+    #[test]
+    fn a_scented_cell_makes_the_fatal_move_a_no_op() {
+        let mut world = world();
+        world.execute(robot(3, 3, North), &[F]);
+
+        let outcome = world.execute(robot(3, 3, North), &[F]);
+        assert_eq!(outcome, Outcome::Completed(robot(3, 3, North)));
+    }
+
+    #[test]
+    fn a_rescued_robot_carries_on_with_its_remaining_instructions() {
+        let mut world = world();
+        world.execute(robot(3, 3, North), &[F]);
+
+        let outcome = world.execute(robot(3, 2, North), &[F, F, L, F, L, F]);
+        assert_eq!(outcome, Outcome::Completed(robot(2, 2, South)));
+    }
+
+    #[test]
+    fn a_scent_protects_the_cell_in_every_direction() {
+        let mut world = world();
+        world.execute(robot(5, 3, North), &[F]);
+
+        let outcome = world.execute(robot(5, 3, East), &[F, R, F]);
+        assert_eq!(outcome, Outcome::Completed(robot(5, 2, South)));
+    }
+
+    #[test]
+    fn a_scent_only_protects_its_own_cell() {
+        let mut world = world();
+        world.execute(robot(3, 3, North), &[F]);
+
+        let outcome = world.execute(robot(2, 3, North), &[F]);
+        assert_eq!(outcome, Outcome::Lost(robot(2, 3, North)));
     }
 
     #[test]
