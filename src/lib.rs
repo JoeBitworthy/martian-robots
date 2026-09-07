@@ -6,3 +6,4 @@ pub mod command;
 pub mod grid;
 pub mod orientation;
 pub mod robot;
+pub mod world;
